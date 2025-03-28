@@ -25,14 +25,7 @@ surplus electricity generated, rather than selling it back to the grid.
 
 # To do
 
-- My OpenEVSE doesn't seem to update the pilot wave while it's charging.
-  So it's stuck at whatever it was on when charging started.  You have
-  to put it to sleep and re-enable it.  Or maybe switch to "Eco (PV
-  divert)"?  :-(
-
 - Upgrade EVSE Wifi firmware?
-
-- Enable MQTT from the OpenEVSE
 
 - Store MQTT OpenEVSE data in victoria-metrics, plot with grafana
 
