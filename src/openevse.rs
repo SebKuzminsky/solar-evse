@@ -81,15 +81,3 @@ impl OpenEVSE {
         //             return response[0] == 'OK', response[1:]
     }
 }
-
-// username = None, password = None):
-// """Initialize the connection to the wifi board."""
-// self.hostname = hostname
-// # See https://github.com/OpenEVSE/ESP8266_WiFi_v2.x/blob/master/src/html/openevse.js#L70
-// # For OpenEVSE's Web UIs version of the regex
-// self.regex = re.compile("\\$([^\\^]*)(\\^..)?")
-// if username and password:
-//     userpass = '%s:%s' % (username, password)
-//     self.authstring = base64.encodebytes(userpass.encode()).decode().rstrip()
-// else:
-//     self.authstring = None
