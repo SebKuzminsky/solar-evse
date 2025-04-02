@@ -46,6 +46,8 @@ struct Args {
 
 #[derive(Debug)]
 struct State {
+    args: Args,
+
     envoy: enphase_local::Envoy,
     openevse: openevse::OpenEVSE,
 
@@ -129,8 +131,18 @@ async fn main() -> Result<(), eyre::Report> {
     // FIXME: only if the charger's enabled, not sleeping
     let charging_current_limit = openevse.get_current_capacity().await?;
 
+    let mut state = State {
+        args,
+        envoy,
+        openevse,
+        net_eim: None,
+        export_current: 0.0,
+        evse_charge_current: active_charging_current,
+        evse_charge_limit: charging_current_limit,
+    };
+
     // Set up MQTT.
-    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &args.mqtt_broker, 1883);
+    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &state.args.mqtt_broker, 1883);
     let (mqtt_client, mut mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
     mqtt_client
         .subscribe("openevse/amp", rumqttc::QoS::AtMostOnce)
@@ -141,15 +153,6 @@ async fn main() -> Result<(), eyre::Report> {
         .await
         .unwrap();
 
-    let mut state = State {
-        envoy: envoy,
-        openevse: openevse,
-        net_eim: None,
-        export_current: 0.0,
-        evse_charge_current: active_charging_current,
-        evse_charge_limit: charging_current_limit,
-    };
-
     // My OpenEVSE has a minimum charge current of 6A (1.5 kW).
     // We should probably avoid clicking the relay on/off too much.
     loop {
@@ -159,19 +162,19 @@ async fn main() -> Result<(), eyre::Report> {
         state.update_current_surplus().await?;
         println!(
             "export current: {:.3} A (target {:.3} A)",
-            state.export_current, args.target_export_current
+            state.export_current, state.args.target_export_current
         );
 
         println!("old evse charge limit: {:.3} A", state.evse_charge_limit);
         state.evse_charge_limit = (state.evse_charge_limit + state.export_current
-            - args.target_export_current)
-            .clamp(0.0, args.evse_max_charge_current);
-        if state.evse_charge_limit < args.evse_min_charge_current {
+            - state.args.target_export_current)
+            .clamp(0.0, state.args.evse_max_charge_current);
+        if state.evse_charge_limit < state.args.evse_min_charge_current {
             state.evse_charge_limit = 0.0;
         }
         println!("new evse charge limit: {:.3} A", state.evse_charge_limit);
 
-        if state.evse_charge_limit >= args.evse_min_charge_current {
+        if state.evse_charge_limit >= state.args.evse_min_charge_current {
             // There's enough available power to charge the car.
             println!("charging at {:.3} A!", state.evse_charge_limit);
 
@@ -188,7 +191,7 @@ async fn main() -> Result<(), eyre::Report> {
             state.openevse.sleep().await?;
         }
 
-        let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(args.period));
+        let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(state.args.period));
         tokio::pin!(timeout);
 
         loop {
