@@ -129,8 +129,8 @@ async fn main() -> Result<(), eyre::Report> {
     // FIXME: only if the charger's enabled, not sleeping
     let charging_current_limit = openevse.get_current_capacity().await?;
 
-    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", args.mqtt_broker, 1883);
-
+    // Set up MQTT.
+    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &args.mqtt_broker, 1883);
     let (mqtt_client, mut mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
     mqtt_client
         .subscribe("openevse/amp", rumqttc::QoS::AtMostOnce)
