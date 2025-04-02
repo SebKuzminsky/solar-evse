@@ -125,6 +125,7 @@ async fn main() -> Result<(), eyre::Report> {
     );
 
     let openevse = openevse::OpenEVSE::new(&args.openevse);
+    let active_charging_current = openevse.get_active_charging_current().await?;
 
     let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", args.mqtt_broker, 1883);
 
@@ -143,7 +144,7 @@ async fn main() -> Result<(), eyre::Report> {
         openevse: openevse,
         net_eim: None,
         export_current: 0.0,
-        evse_charge_current: 0.0,
+        evse_charge_current: active_charging_current,
         evse_charge_limit: 0.0,
     };
 
