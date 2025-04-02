@@ -9,6 +9,13 @@
 // }
 // ```
 
+#[derive(Debug, serde::Deserialize, Clone)]
+pub struct RapiReply {
+    #[allow(dead_code)]
+    cmd: String,
+    ret: String,
+}
+
 #[derive(Debug)]
 pub struct OpenEVSE {
     openevse_hostname: String,
@@ -58,26 +65,15 @@ impl OpenEVSE {
         for arg in command[1..].iter() {
             url += &format!("+{arg}");
         }
-        // println!("url = {url:?}");
 
         let body = reqwest::get(url).await?.text().await?;
 
-        // println!("body = {body:?}");
-        Ok(body)
+        let rapi_reply: RapiReply = serde_json::from_str(&body)?;
 
-        //         url = "http://{host}/r?json=1&rapi=%24{cmd}".format(host=self.hostname, cmd='+'.join(args))
-        //         request = urllib.request.Request(url)
-        //         if self.authstring:
-        //             request.add_header("Authorization", "Basic %s" % self.authstring)
-        //         resp = urllib.request.urlopen(request)
-        //         data = json.loads(resp.read())
-        //         if "ret" not in data:
-        //             return False, ""
-        //         match = self.regex.match(data["ret"])
-        //         if not match:
-        //             return False, ""
-        //         else:
-        //             response = match.group(1).split()
-        //             return response[0] == 'OK', response[1:]
+        // Some RAPI commands return a string like "$OK 26400 -1^0C"
+        // that we can split on whitespace, but some return a string like
+        // "$OK^20" that we can not. :-(
+
+        Ok(rapi_reply.ret)
     }
 }
