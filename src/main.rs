@@ -172,8 +172,6 @@ impl State {
                 tokio::select! {
                     _ = self.ctrl_c_rx.recv() => {
                         println!("bye!");
-                        // Set the OpenEVSE to charge at full blast.
-                        self.charge_at_full_blast().await?;
                         return Ok(());
                     }
 
@@ -274,5 +272,10 @@ async fn main() -> Result<(), eyre::Report> {
         evse_charge_limit: charging_current_limit,
     };
 
-    state.run().await
+    let r = state.run().await;
+
+    // Always reset the EVSE to charge at full blast when we exit.
+    state.charge_at_full_blast().await?;
+
+    return r;
 }
