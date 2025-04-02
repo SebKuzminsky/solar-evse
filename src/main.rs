@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::str::FromStr;
 
 mod openevse;
 
@@ -14,6 +15,10 @@ struct Args {
     /// The hostname or IP address of the OpenEVSE to connect to.
     #[arg(long, default_value_t = String::from("openevse"))]
     openevse: String,
+
+    /// The MQTT broker to connect to for OpenEVSE telemetry.
+    #[arg(long)]
+    mqtt_broker: String,
 
     /// The Envoy local auth token to use, uuencoded.
     #[arg(short, long)]
@@ -50,7 +55,13 @@ struct State {
     // How many Amps we're currently exporting to the grid.
     export_current: f64,
 
+    // The EVSE Pilot current, how much it's advertising to the EV that
+    // it's willing to supply.
     evse_charge_limit: f64,
+
+    // The EVSE actual charge current.  How much the EV is currently
+    // drawing.
+    evse_charge_current: f64,
 }
 
 impl State {
@@ -115,11 +126,24 @@ async fn main() -> Result<(), eyre::Report> {
 
     let openevse = openevse::OpenEVSE::new(&args.openevse);
 
+    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", args.mqtt_broker, 1883);
+
+    let (mqtt_client, mut mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
+    mqtt_client
+        .subscribe("openevse/amp", rumqttc::QoS::AtMostOnce)
+        .await
+        .unwrap();
+    mqtt_client
+        .subscribe("openevse/pilot", rumqttc::QoS::AtMostOnce)
+        .await
+        .unwrap();
+
     let mut state = State {
         envoy: envoy,
         openevse: openevse,
         net_eim: None,
         export_current: 0.0,
+        evse_charge_current: 0.0,
         evse_charge_limit: 0.0,
     };
 
@@ -161,8 +185,55 @@ async fn main() -> Result<(), eyre::Report> {
             state.openevse.sleep().await?;
         }
 
-        println!("");
+        let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(args.period));
+        tokio::pin!(timeout);
 
-        tokio::time::sleep(tokio::time::Duration::from_secs(args.period)).await;
+        loop {
+            tokio::select! {
+                notification = mqtt_eventloop.poll() => {
+                    match notification {
+                        Ok(rumqttc::Event::Incoming(rumqttc::mqttbytes::v4::Packet::Publish(msg))) => {
+                            let payload = String::from_utf8_lossy(&msg.payload);
+                            match msg.topic.as_str() {
+                                "openevse/amp" => {
+                                    match f64::from_str(&payload) {
+                                        Ok(new_val) => {
+                                            state.evse_charge_current = new_val / 1000.0;
+                                            println!("EVSE reports active charge current: {:.3}", state.evse_charge_current);
+                                        }
+                                        Err(e) => {
+                                            println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
+                                            state.evse_charge_current = 0.0;
+                                        }
+                                    }
+                                }
+                                "openevse/pilot" => {
+                                    match f64::from_str(&payload) {
+                                        Ok(new_val) => {
+                                            println!("EVSE reports charge current limit: {:.3}", new_val);
+                                        }
+                                        Err(e) => {
+                                            println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    ()
+                                }
+                            }
+                        }
+                        _ => {
+                            ()
+                        }
+                    }
+                }
+
+                _ = &mut timeout => {
+                    break;
+                }
+            }
+        }
+
+        println!("");
     }
 }
