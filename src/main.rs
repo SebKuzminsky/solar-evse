@@ -44,12 +44,14 @@ struct Args {
     evse_max_charge_current: f64,
 }
 
-#[derive(Debug)]
 struct State {
     args: Args,
 
     envoy: enphase_local::Envoy,
     openevse: openevse::OpenEVSE,
+
+    ctrl_c_rx: tokio::sync::mpsc::Receiver<()>,
+    mqtt_eventloop: rumqttc::EventLoop,
 
     // "Enphase Integrated Meter", measures energy produced and consumed.
     net_eim: Option<enphase_local::production::Device>,
@@ -124,6 +126,104 @@ impl State {
         self.openevse.enable().await?;
         Ok(())
     }
+
+    async fn run(&mut self) -> Result<(), eyre::Report> {
+        // My OpenEVSE has a minimum charge current of 6A (1.5 kW).
+        // We should probably avoid clicking the relay on/off too much.
+        loop {
+            let now = chrono::Local::now();
+            println!("{}", now.format("%Y-%m-%d %H:%M:%S"));
+
+            self.update_current_surplus().await?;
+            println!(
+                "export current: {:.3} A (target {:.3} A)",
+                self.export_current, self.args.target_export_current
+            );
+
+            println!("old evse charge limit: {:.3} A", self.evse_charge_limit);
+            self.evse_charge_limit = (self.evse_charge_limit + self.export_current
+                - self.args.target_export_current)
+                .clamp(0.0, self.args.evse_max_charge_current);
+            if self.evse_charge_limit < self.args.evse_min_charge_current {
+                self.evse_charge_limit = 0.0;
+            }
+            println!("new evse charge limit: {:.3} A", self.evse_charge_limit);
+
+            if self.evse_charge_limit >= self.args.evse_min_charge_current {
+                // There's enough available power to charge the car.
+                println!("charging at {:.3} A!", self.evse_charge_limit);
+
+                // Update the OpenEVSE with the new charge limit.
+                self.openevse
+                    .set_current_capacity(self.evse_charge_limit as isize)
+                    .await?;
+                self.openevse.get_current_capacity().await?;
+
+                self.openevse.enable().await?;
+            } else {
+                println!("sleeping, waiting for more available current");
+                self.openevse.sleep().await?;
+            }
+
+            let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(self.args.period));
+            tokio::pin!(timeout);
+
+            loop {
+                tokio::select! {
+                    _ = self.ctrl_c_rx.recv() => {
+                        println!("bye!");
+                        // Set the OpenEVSE to charge at full blast.
+                        self.charge_at_full_blast().await?;
+                        return Ok(());
+                    }
+
+                    notification = self.mqtt_eventloop.poll() => {
+                        match notification {
+                            Ok(rumqttc::Event::Incoming(rumqttc::mqttbytes::v4::Packet::Publish(msg))) => {
+                                let payload = String::from_utf8_lossy(&msg.payload);
+                                match msg.topic.as_str() {
+                                    "openevse/amp" => {
+                                        match f64::from_str(&payload) {
+                                            Ok(new_val) => {
+                                                self.evse_charge_current = new_val / 1000.0;
+                                                println!("EVSE reports active charge current: {:.3}", self.evse_charge_current);
+                                            }
+                                            Err(e) => {
+                                                println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
+                                                self.evse_charge_current = 0.0;
+                                            }
+                                        }
+                                    }
+                                    "openevse/pilot" => {
+                                        match f64::from_str(&payload) {
+                                            Ok(new_val) => {
+                                                println!("EVSE reports charge current limit: {:.3}", new_val);
+                                            }
+                                            Err(e) => {
+                                                println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        ()
+                                    }
+                                }
+                            }
+                            _ => {
+                                ()
+                            }
+                        }
+                    }
+
+                    _ = &mut timeout => {
+                        break;
+                    }
+                }
+            }
+
+            println!("");
+        }
+    }
 }
 
 #[tokio::main]
@@ -141,18 +241,8 @@ async fn main() -> Result<(), eyre::Report> {
     // FIXME: only if the charger's enabled, not sleeping
     let charging_current_limit = openevse.get_current_capacity().await?;
 
-    let mut state = State {
-        args,
-        envoy,
-        openevse,
-        net_eim: None,
-        export_current: 0.0,
-        evse_charge_current: active_charging_current,
-        evse_charge_limit: charging_current_limit,
-    };
-
     // Handle Ctrl-C.
-    let (ctrl_c_tx, mut ctrl_c_rx) = tokio::sync::mpsc::channel::<()>(10);
+    let (ctrl_c_tx, ctrl_c_rx) = tokio::sync::mpsc::channel::<()>(10);
     ctrlc::set_handler(move || {
         ctrl_c_tx
             .try_send(())
@@ -161,8 +251,8 @@ async fn main() -> Result<(), eyre::Report> {
     .expect("Error setting Ctrl-C handler");
 
     // Set up MQTT.
-    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &state.args.mqtt_broker, 1883);
-    let (mqtt_client, mut mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
+    let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &args.mqtt_broker, 1883);
+    let (mqtt_client, mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
     mqtt_client
         .subscribe("openevse/amp", rumqttc::QoS::AtMostOnce)
         .await
@@ -172,100 +262,17 @@ async fn main() -> Result<(), eyre::Report> {
         .await
         .unwrap();
 
-    // My OpenEVSE has a minimum charge current of 6A (1.5 kW).
-    // We should probably avoid clicking the relay on/off too much.
-    loop {
-        let now = chrono::Local::now();
-        println!("{}", now.format("%Y-%m-%d %H:%M:%S"));
+    let mut state = State {
+        args,
+        envoy,
+        openevse,
+        ctrl_c_rx,
+        mqtt_eventloop,
+        net_eim: None,
+        export_current: 0.0,
+        evse_charge_current: active_charging_current,
+        evse_charge_limit: charging_current_limit,
+    };
 
-        state.update_current_surplus().await?;
-        println!(
-            "export current: {:.3} A (target {:.3} A)",
-            state.export_current, state.args.target_export_current
-        );
-
-        println!("old evse charge limit: {:.3} A", state.evse_charge_limit);
-        state.evse_charge_limit = (state.evse_charge_limit + state.export_current
-            - state.args.target_export_current)
-            .clamp(0.0, state.args.evse_max_charge_current);
-        if state.evse_charge_limit < state.args.evse_min_charge_current {
-            state.evse_charge_limit = 0.0;
-        }
-        println!("new evse charge limit: {:.3} A", state.evse_charge_limit);
-
-        if state.evse_charge_limit >= state.args.evse_min_charge_current {
-            // There's enough available power to charge the car.
-            println!("charging at {:.3} A!", state.evse_charge_limit);
-
-            // Update the OpenEVSE with the new charge limit.
-            state
-                .openevse
-                .set_current_capacity(state.evse_charge_limit as isize)
-                .await?;
-            state.openevse.get_current_capacity().await?;
-
-            state.openevse.enable().await?;
-        } else {
-            println!("sleeping, waiting for more available current");
-            state.openevse.sleep().await?;
-        }
-
-        let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(state.args.period));
-        tokio::pin!(timeout);
-
-        loop {
-            tokio::select! {
-                _ = ctrl_c_rx.recv() => {
-                    println!("bye!");
-                    // Set the OpenEVSE to charge at full blast.
-                    state.charge_at_full_blast().await?;
-                    return Ok(());
-                }
-
-                notification = mqtt_eventloop.poll() => {
-                    match notification {
-                        Ok(rumqttc::Event::Incoming(rumqttc::mqttbytes::v4::Packet::Publish(msg))) => {
-                            let payload = String::from_utf8_lossy(&msg.payload);
-                            match msg.topic.as_str() {
-                                "openevse/amp" => {
-                                    match f64::from_str(&payload) {
-                                        Ok(new_val) => {
-                                            state.evse_charge_current = new_val / 1000.0;
-                                            println!("EVSE reports active charge current: {:.3}", state.evse_charge_current);
-                                        }
-                                        Err(e) => {
-                                            println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
-                                            state.evse_charge_current = 0.0;
-                                        }
-                                    }
-                                }
-                                "openevse/pilot" => {
-                                    match f64::from_str(&payload) {
-                                        Ok(new_val) => {
-                                            println!("EVSE reports charge current limit: {:.3}", new_val);
-                                        }
-                                        Err(e) => {
-                                            println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    ()
-                                }
-                            }
-                        }
-                        _ => {
-                            ()
-                        }
-                    }
-                }
-
-                _ = &mut timeout => {
-                    break;
-                }
-            }
-        }
-
-        println!("");
-    }
+    state.run().await
 }
