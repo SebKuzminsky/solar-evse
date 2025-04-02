@@ -140,8 +140,14 @@ impl State {
                 self.export_current, self.args.target_export_current
             );
 
+            println!(
+                "active EVSE charge current: {:.3}",
+                self.evse_charge_current
+            );
+
             println!("old evse charge limit: {:.3} A", self.evse_charge_limit);
-            self.evse_charge_limit = (self.evse_charge_limit + self.export_current
+
+            self.evse_charge_limit = (self.evse_charge_current + self.export_current
                 - self.args.target_export_current)
                 .clamp(0.0, self.args.evse_max_charge_current);
             if self.evse_charge_limit < self.args.evse_min_charge_current {
