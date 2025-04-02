@@ -114,6 +114,16 @@ impl State {
         self.net_eim = Some(net_eim);
         Ok(())
     }
+
+    async fn charge_at_full_blast(&mut self) -> Result<(), eyre::Report> {
+        println!("charging at full blast!");
+        self.openevse
+            .set_current_capacity(self.args.evse_max_charge_current as isize)
+            .await?;
+        self.openevse.get_current_capacity().await?;
+        self.openevse.enable().await?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -140,6 +150,15 @@ async fn main() -> Result<(), eyre::Report> {
         evse_charge_current: active_charging_current,
         evse_charge_limit: charging_current_limit,
     };
+
+    // Handle Ctrl-C.
+    let (ctrl_c_tx, mut ctrl_c_rx) = tokio::sync::mpsc::channel::<()>(10);
+    ctrlc::set_handler(move || {
+        ctrl_c_tx
+            .try_send(())
+            .expect("Could not send signal on channel.")
+    })
+    .expect("Error setting Ctrl-C handler");
 
     // Set up MQTT.
     let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &state.args.mqtt_broker, 1883);
@@ -196,6 +215,13 @@ async fn main() -> Result<(), eyre::Report> {
 
         loop {
             tokio::select! {
+                _ = ctrl_c_rx.recv() => {
+                    println!("bye!");
+                    // Set the OpenEVSE to charge at full blast.
+                    state.charge_at_full_blast().await?;
+                    return Ok(());
+                }
+
                 notification = mqtt_eventloop.poll() => {
                     match notification {
                         Ok(rumqttc::Event::Incoming(rumqttc::mqttbytes::v4::Packet::Publish(msg))) => {
