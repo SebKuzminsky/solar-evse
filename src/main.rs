@@ -126,6 +126,8 @@ async fn main() -> Result<(), eyre::Report> {
 
     let openevse = openevse::OpenEVSE::new(&args.openevse);
     let active_charging_current = openevse.get_active_charging_current().await?;
+    // FIXME: only if the charger's enabled, not sleeping
+    let charging_current_limit = openevse.get_current_capacity().await?;
 
     let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", args.mqtt_broker, 1883);
 
@@ -145,7 +147,7 @@ async fn main() -> Result<(), eyre::Report> {
         net_eim: None,
         export_current: 0.0,
         evse_charge_current: active_charging_current,
-        evse_charge_limit: 0.0,
+        evse_charge_limit: charging_current_limit,
     };
 
     // My OpenEVSE has a minimum charge current of 6A (1.5 kW).
