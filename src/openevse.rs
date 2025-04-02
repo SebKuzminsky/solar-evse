@@ -60,10 +60,21 @@ impl OpenEVSE {
         }
     }
 
-    pub async fn get_current_capacity(&self) -> Result<f32, eyre::Report> {
-        let _data = self.request(&["GE"]).await?;
-        // println!("get_current_capacity: {}", data);
-        Ok(0.0)
+    pub async fn get_current_capacity(&self) -> Result<f64, eyre::Report> {
+        let reply = self.request(&["GE"]).await?;
+        println!("get_current_capacity: {}", reply);
+
+        let mut tokens = reply.split_whitespace();
+        match tokens.next() {
+            Some("$OK") => {
+                let i = f64::from_str(tokens.next().unwrap())?;
+                println!("current capacity: {:.3}", i);
+                return Ok(i);
+            }
+            _ => {
+                return Err(eyre::Report::msg(format!("{:#?}", reply)));
+            }
+        }
     }
 
     pub async fn set_current_capacity(
