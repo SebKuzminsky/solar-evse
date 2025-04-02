@@ -9,6 +9,8 @@
 // }
 // ```
 
+use std::str::FromStr;
+
 #[derive(Debug, serde::Deserialize, Clone)]
 pub struct RapiReply {
     #[allow(dead_code)]
@@ -38,6 +40,24 @@ impl OpenEVSE {
         let _data = self.request(&["FS"]).await?;
         // println!("sleep: {}", data);
         Ok(())
+    }
+
+    /// Read amount of current currently being drawn by the EV, in amps.
+    pub async fn get_active_charging_current(&self) -> Result<f64, eyre::Report> {
+        // `reply` will be a string like "$OK 1234 -1^0C", where the
+        // 1234 is the current in milliamps.
+        let reply = self.request(&["GG"]).await?;
+
+        let mut tokens = reply.split_whitespace();
+        match tokens.next() {
+            Some("$OK") => {
+                let i = f64::from_str(tokens.next().unwrap())? / 1000.0;
+                return Ok(i);
+            }
+            _ => {
+                return Err(eyre::Report::msg(format!("{:#?}", reply)));
+            }
+        }
     }
 
     pub async fn get_current_capacity(&self) -> Result<f32, eyre::Report> {
