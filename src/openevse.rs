@@ -87,6 +87,9 @@ impl OpenEVSE {
     }
 
     pub async fn request(&self, command: &[&str]) -> Result<String, eyre::Report> {
+        const NUM_RETRIES: usize = 18;
+        const RETRY_DELAY_SECONDS: u64 = 10;
+
         let mut url = format!(
             "http://{}/r?json=1&rapi=%24{}",
             self.openevse_hostname, command[0]
@@ -95,14 +98,34 @@ impl OpenEVSE {
             url += &format!("+{arg}");
         }
 
-        let body = reqwest::get(url).await?.text().await?;
-
-        let rapi_reply: RapiReply = serde_json::from_str(&body)?;
-
-        // Some RAPI commands return a string like "$OK 26400 -1^0C"
-        // that we can split on whitespace, but some return a string like
-        // "$OK^20" that we can not. :-(
-
-        Ok(rapi_reply.ret)
+        for _ in 0..NUM_RETRIES {
+            match reqwest::get(&url).await {
+                Ok(response) => {
+                    match response.text().await {
+                        Ok(body) => {
+                            let rapi_reply: RapiReply = serde_json::from_str(&body)?;
+                            // Some RAPI commands return a string like
+                            // "$OK 26400 -1^0C" that we can split on
+                            // whitespace, but some return a string like
+                            // "$OK^20" that we can not. :-(
+                            return Ok(rapi_reply.ret);
+                        }
+                        Err(e) => {
+                            println!("OpenEVSE request text failed: {:?}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("OpenEVSE request failed: {:?}", e);
+                }
+            }
+            // If we get here, the request failed and we should sleep
+            // a bit then retry (or give up).
+            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECONDS)).await;
+        }
+        return Err(eyre::Report::msg(format!(
+            "giving up after {} OpenEVSE Request failures",
+            NUM_RETRIES
+        )));
     }
 }
