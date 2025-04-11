@@ -2,8 +2,14 @@
 
 My house has grid-tied PV solar and an EVSE to charge my electric car.
 
-This project is to monitor the PV system, and charge the car with any
-surplus electricity generated, rather than selling it back to the grid.
+This project monitors the PV system and charges the car with any surplus
+electricity generated, rather than selling it back to the grid.
+
+Modulate charging current based on energy being generated: ![](pics/charge-while-the-sun-is-shining.png)
+
+When the car is finished charging, export the surplus: ![](pics/finish-charging-export-surplus.png)
+
+The code works like this:
 
 - Read cumulative energy import/export from the Enphase Envoy over local
   Wifi, every minute.
