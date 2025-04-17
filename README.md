@@ -35,4 +35,4 @@ The code works like this:
 
 - Store MQTT OpenEVSE data in victoria-metrics, plot with grafana
 
-- Store Enphase daata in victoria-metrics, plot with grafana
+- Store Enphase data in victoria-metrics, plot with grafana
