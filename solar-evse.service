@@ -1,0 +1,26 @@
+# This file is `solar-evse.service`.
+# Symlink into into `/etc/systemd/system/`.
+# ```
+# $ sudo systemctl daemon-reload
+# $ sudo systemctl enable solar-evse
+# $ sudo systemctl start solar-evse # or reboot
+# $ sudo systemctl status solar-evse
+# $ sudo journalctl -u solar-evse -f -n 1000
+# ```
+
+[Unit]
+Description=Solar powered EVSE
+Requires=network.target local-fs.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=60
+User=seb
+
+WorkingDirectory=/home/seb/solar-evse
+ExecStart=/home/seb/solar-evse/target/debug/solar-evse --auth-token-filename ./token.uu --mqtt-broker bifrost.local
+
+[Install]
+WantedBy=multi-user.target
