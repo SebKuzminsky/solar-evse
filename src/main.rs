@@ -20,9 +20,9 @@ struct Args {
     #[arg(long)]
     mqtt_broker: String,
 
-    /// The Envoy local auth token to use, uuencoded.
+    /// Filename of the Envoy local auth token to use, uuencoded.
     #[arg(short, long)]
-    auth_token: String,
+    auth_token_filename: String,
 
     /// The number of seconds between updates.
     #[arg(short, long, default_value_t = 60)]
@@ -235,9 +235,10 @@ async fn main() -> Result<(), eyre::Report> {
     let args = Args::parse();
     println!("config: {args:#?}");
 
+    let auth_token = tokio::fs::read_to_string(&args.auth_token_filename).await?;
     let envoy = enphase_local::Envoy::new(
         reqwest::Url::parse(&format!("https://{}", &args.envoy))?,
-        &args.auth_token,
+        &auth_token,
     );
 
     let openevse = openevse::OpenEVSE::new(&args.openevse);
