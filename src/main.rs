@@ -131,9 +131,6 @@ impl State {
         // My OpenEVSE has a minimum charge current of 6A (1.5 kW).
         // We should probably avoid clicking the relay on/off too much.
         loop {
-            let now = chrono::Local::now();
-            println!("{}", now.format("%Y-%m-%d %H:%M:%S"));
-
             self.update_current_surplus().await?;
             println!(
                 "export current: {:.3} A (target {:.3} A)",
