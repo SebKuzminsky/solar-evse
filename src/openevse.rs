@@ -60,6 +60,12 @@ impl OpenEVSE {
         }
     }
 
+    /// Read amount of current currently being offered by the EVSE to
+    /// the EV, in amps.
+    ///
+    /// Note: This does not take into account the EVSE state, e.g. when
+    /// it's in Sleep mode it will not offer any current but this function
+    /// will report what it *would* offer if it was Enabled.
     pub async fn get_current_capacity(&self) -> Result<f64, eyre::Report> {
         let reply = self.request(&["GE"]).await?;
 
