@@ -187,25 +187,13 @@ impl State {
                             Ok(rumqttc::Event::Incoming(rumqttc::mqttbytes::v4::Packet::Publish(msg))) => {
                                 let payload = String::from_utf8_lossy(&msg.payload);
                                 match msg.topic.as_str() {
-                                    "openevse/amp" => {
-                                        match f64::from_str(&payload) {
-                                            Ok(new_val) => {
-                                                self.evse_charge_current = new_val / 1000.0;
-                                                println!("EVSE reports active charge current: {:.3}", self.evse_charge_current);
+                                    "openevse/state" => {
+                                        match isize::from_str(&payload) {
+                                            Ok(new_state_num) => {
+                                                println!("EVSE reports state: {}", new_state_num);
                                             }
                                             Err(e) => {
-                                                println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
-                                                self.evse_charge_current = 0.0;
-                                            }
-                                        }
-                                    }
-                                    "openevse/pilot" => {
-                                        match f64::from_str(&payload) {
-                                            Ok(new_val) => {
-                                                println!("EVSE reports charge current limit: {:.3}", new_val);
-                                            }
-                                            Err(e) => {
-                                                println!("failed to parse f64 from {:#?}: {:#?}", payload, e);
+                                                println!("failed to parse isize state from {:#?}: {:#?}", payload, e);
                                             }
                                         }
                                     }
@@ -260,11 +248,7 @@ async fn main() -> Result<(), eyre::Report> {
     let mqtt_options = rumqttc::MqttOptions::new("rumqttc-async", &args.mqtt_broker, 1883);
     let (mqtt_client, mqtt_eventloop) = rumqttc::AsyncClient::new(mqtt_options, 10);
     mqtt_client
-        .subscribe("openevse/amp", rumqttc::QoS::AtMostOnce)
-        .await
-        .unwrap();
-    mqtt_client
-        .subscribe("openevse/pilot", rumqttc::QoS::AtMostOnce)
+        .subscribe("openevse/state", rumqttc::QoS::AtMostOnce)
         .await
         .unwrap();
 
