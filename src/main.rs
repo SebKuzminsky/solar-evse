@@ -137,8 +137,9 @@ impl State {
                 self.export_current, self.args.target_export_current
             );
 
-            // FIXME: Ignore the old EV current-draw value we got from
-            // MQTT, poll the EVSE for charge current right now.
+            // Don't use the old out-of-date EV current-draw value we
+            // can get from MQTT, poll the EVSE for the active charge
+            // current right now.
             self.evse_charge_current = self.openevse.get_active_charging_current().await?;
             println!(
                 "active EVSE charge current: {:.3}",
