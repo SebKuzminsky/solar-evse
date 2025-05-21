@@ -190,7 +190,10 @@ impl State {
                                     "openevse/state" => {
                                         match isize::from_str(&payload) {
                                             Ok(new_state_num) => {
-                                                let new_state =  openevse::State::try_from(new_state_num);
+                                                let Ok(new_state) = openevse::State::try_from(new_state_num) else {
+                                                    println!("failed to convert state number {} to State", new_state_num);
+                                                    continue;
+                                                };
                                                 println!("EVSE reports state: {:#?} ({})", new_state, new_state_num);
                                             }
                                             Err(e) => {
