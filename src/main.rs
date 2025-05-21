@@ -190,7 +190,8 @@ impl State {
                                     "openevse/state" => {
                                         match isize::from_str(&payload) {
                                             Ok(new_state_num) => {
-                                                println!("EVSE reports state: {}", new_state_num);
+                                                let new_state =  openevse::State::try_from(new_state_num);
+                                                println!("EVSE reports state: {:#?} ({})", new_state, new_state_num);
                                             }
                                             Err(e) => {
                                                 println!("failed to parse isize state from {:#?}: {:#?}", payload, e);

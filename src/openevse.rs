@@ -19,6 +19,38 @@ pub struct RapiReply {
 }
 
 #[derive(Debug)]
+pub enum State {
+    Ready,
+    Connected,
+    Charging,
+    Error,
+}
+
+impl From<State> for isize {
+    fn from(val: State) -> isize {
+        match val {
+            State::Ready => 1,
+            State::Connected => 2,
+            State::Charging => 3,
+            State::Error => 4,
+        }
+    }
+}
+
+impl TryFrom<isize> for State {
+    type Error = String;
+    fn try_from(val: isize) -> Result<State, <State as TryFrom<isize>>::Error> {
+        match val {
+            1 => Ok(State::Ready),
+            2 => Ok(State::Connected),
+            3 => Ok(State::Charging),
+            4 => Ok(State::Error),
+            _ => Err(format!("unknown State number {}", val)),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct OpenEVSE {
     openevse_hostname: String,
 }
