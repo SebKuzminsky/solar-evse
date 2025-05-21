@@ -24,6 +24,7 @@ pub enum State {
     Connected,
     Charging,
     Error,
+    Sleeping,
 }
 
 impl From<State> for isize {
@@ -33,6 +34,7 @@ impl From<State> for isize {
             State::Connected => 2,
             State::Charging => 3,
             State::Error => 4,
+            State::Sleeping => 254,
         }
     }
 }
@@ -45,6 +47,7 @@ impl TryFrom<isize> for State {
             2 => Ok(State::Connected),
             3 => Ok(State::Charging),
             4 => Ok(State::Error),
+            254 => Ok(State::Sleeping),
             _ => Err(format!("unknown State number {}", val)),
         }
     }
