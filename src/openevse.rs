@@ -144,7 +144,13 @@ impl OpenEVSE {
                 Ok(response) => {
                     match response.text().await {
                         Ok(body) => {
-                            let rapi_reply: RapiReply = serde_json::from_str(&body)?;
+                            let Ok(rapi_reply) = serde_json::from_str::<RapiReply>(&body) else {
+                                println!(
+                                    "invalid json reply from rapi command {:?}: {:?}",
+                                    url, body
+                                );
+                                continue;
+                            };
                             // Some RAPI commands return a string like
                             // "$OK 26400 -1^0C" that we can split on
                             // whitespace, but some return a string like
